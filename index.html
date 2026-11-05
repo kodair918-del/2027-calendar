@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ja" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>2027 年間カレンダー — Lunar Almanac</title>
+<meta name="description" content="2027年の年間スケジュールと週間タイムテーブル。月相・二至二分・週末を俯瞰し、日ごと・時間ごとに予定を書き込める。" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="year">2027</span>
+    <span class="sub">Lunar Almanac</span>
+  </div>
+
+  <div class="views" role="tablist" aria-label="表示切り替え">
+    <button type="button" class="vt on" data-view="year" role="tab" aria-selected="true">年間</button>
+    <button type="button" class="vt" data-view="week" role="tab" aria-selected="false">週</button>
+  </div>
+
+  <div class="legend">
+    <span class="lg"><i class="sw sw-sat"></i>土曜</span>
+    <span class="lg"><i class="sw sw-sun"></i>日曜</span>
+    <span class="lg"><i class="sw sw-gold"></i>二至二分</span>
+    <span class="lg"><i class="sw sw-ring"></i>主要月相</span>
+  </div>
+
+  <div class="actions">
+    <button type="button" class="btn" id="btn-login" hidden>ログイン</button>
+    <button type="button" class="btn" id="btn-logout" hidden>ログアウト</button>
+    <button type="button" class="btn sync" id="btn-sync" title="TimeTree と双方向同期" hidden>同期</button>
+    <button type="button" class="btn" id="btn-export">書き出し</button>
+    <button type="button" class="btn" id="btn-import">読み込み</button>
+    <button type="button" class="btn" id="btn-ics" title="TimeTree / Google カレンダーなどの .ics を取り込む">iCal</button>
+    <button type="button" class="btn" id="btn-print">印刷</button>
+    <button type="button" class="btn icon" id="btn-theme" title="テーマ切り替え" aria-label="テーマ切り替え">◐</button>
+    <input type="file" id="file-input" accept=".json,application/json" hidden />
+    <input type="file" id="ics-input" accept=".ics,text/calendar,text/plain" hidden />
+  </div>
+</header>
+
+<div class="scroller" id="scroller">
+
+  <!-- ---------- 年間ビュー ---------- -->
+  <section class="pane pane-year" id="pane-year" aria-label="年間カレンダー">
+    <main class="board" id="board" role="group" aria-label="2027年 年間カレンダー"></main>
+    <p class="hint">
+      <button type="button" class="hint-btn" id="hint-week">下にスクロールで週表示　↓</button>
+      <span class="credit">月面画像: NASA / GSFC / ASU — LRO</span>
+    </p>
+  </section>
+
+  <!-- ---------- 週間ビュー ---------- -->
+  <section class="pane pane-week" id="pane-week" aria-label="週間スケジュール">
+    <div class="wk-top">
+      <button type="button" class="nav" id="wk-prev" aria-label="前の週">‹</button>
+      <div class="wk-label">
+        <span class="wk-range" id="wk-range">—</span>
+        <span class="wk-sub" id="wk-sub"></span>
+      </div>
+      <button type="button" class="nav" id="wk-next" aria-label="次の週">›</button>
+      <input type="date" class="wk-jump" id="wk-jump" min="2027-01-01" max="2027-12-31" aria-label="日付を指定して移動" />
+      <span class="wk-hint">空きをドラッグで予定作成　←　→　で週移動</span>
+    </div>
+    <div class="weeks" id="weeks"></div>
+    <p class="hint up"><button type="button" class="hint-btn" id="hint-year">↑ 年間表示</button></p>
+  </section>
+
+</div>
+
+<dialog class="auth-dialog" id="auth-dialog" aria-labelledby="auth-title">
+  <form id="auth-form">
+    <h2 id="auth-title">カレンダーにログイン</h2>
+    <p>予定を保存・同期するため、サイトのパスワードを入力してください。</p>
+    <label for="auth-password">サイトのパスワード</label>
+    <input id="auth-password" type="password" autocomplete="current-password" required />
+    <p class="auth-error" id="auth-error" role="alert" hidden></p>
+    <div class="auth-actions">
+      <button type="button" class="btn" id="auth-cancel">あとで</button>
+      <button type="submit" class="btn auth-submit">ログイン</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="pop" id="pop" role="dialog" aria-label="日別メモ" hidden>
+  <div class="pop-top">
+    <svg class="pop-moon" viewBox="0 0 32 32" aria-hidden="true"><use id="pop-moon-use" href="#mp-0" /></svg>
+    <div class="pop-info">
+      <div class="pop-date" id="pop-date"></div>
+      <div class="pop-meta" id="pop-meta"></div>
+    </div>
+    <button type="button" class="pop-close" id="pop-close" aria-label="閉じる">×</button>
+  </div>
+
+  <div class="pop-evs" id="pop-evs" hidden></div>
+
+  <textarea id="pop-text" rows="4" placeholder="予定・メモ" spellcheck="false"></textarea>
+
+  <div class="pop-foot">
+    <button type="button" class="link" id="pop-week">週表示で開く</button>
+    <span id="pop-state">保存済み</span>
+  </div>
+</div>
+
+<svg id="sprite" aria-hidden="true" focusable="false"></svg>
+
+<script src="data/2027.js" defer></script>
+<script src="app.js" defer></script>
+</body>
+</html>
