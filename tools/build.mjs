@@ -3,7 +3,7 @@
  * 配布用の単一ファイルを生成する。
  *
  *   node tools/build.mjs
- *   → dist/index.html （CSS / JS / 天文データ / 月面画像をすべて内包）
+ *   → dist/index.html （CSS / JS / 天文計算 / 月面画像をすべて内包）
  *
  * dist/index.html はそのまま GitHub Pages などに
  * 置くだけで動く（ローカルファイルとして開いても動く）。
@@ -21,7 +21,7 @@ const read = (p) => readFileSync(join(ROOT, p), 'utf8');
 const html = read('index.html');
 const css = read('styles.css');
 const app = read('app.js');
-const data = read('data/2027.js');
+const astro = read('astro.js');
 const moon = readFileSync(join(ROOT, 'assets', 'moon.jpg'));
 
 const moonUri = `data:image/jpeg;base64,${moon.toString('base64')}`;
@@ -31,7 +31,7 @@ let out = html
   .replace(/\s*<link rel="preconnect"[^>]*>\s*/g, '\n')
   .replace(/\s*<link href="https:\/\/fonts\.googleapis\.com[^>]*>\s*/g, '\n')
   .replace(/\s*<link rel="stylesheet" href="styles\.css"\s*\/?>\s*/g, '\n<style>\n' + minifyCss(css) + '\n</style>\n')
-  .replace(/\s*<script src="data\/2027\.js" defer><\/script>\s*/g, '\n<script>' + data.trim() + '</script>\n')
+  .replace(/\s*<script src="astro\.js" defer><\/script>\s*/g, '\n<script>' + astro.trim() + '</script>\n')
   .replace(/\s*<script src="app\.js" defer><\/script>\s*/g, '\n<script>' + app + '</script>\n');
 
 // JS 内の画像参照を data URI に置き換え

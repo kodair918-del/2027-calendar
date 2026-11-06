@@ -2,10 +2,10 @@
 (() => {
   'use strict';
 
-  const DATA = window.CAL_2027;
-  if (!DATA) {
+  const ASTRO = window.LUNAR_ASTRO;
+  if (!ASTRO) {
     document.body.innerHTML =
-      '<p style="font:14px system-ui;padding:24px">data/2027.js を読み込めませんでした。</p>';
+      '<p style="font:14px system-ui;padding:24px">astro.js を読み込めませんでした。</p>';
     return;
   }
 
@@ -15,32 +15,42 @@
   const STEPS = 24;                 // 月アイコンの分割数（15度刻み）
   const NOTES_KEY = 'lunar2027.notes.v1';
   const THEME_KEY = 'lunar2027.theme.v1';
+  const YEAR_KEY = 'lunar2027.year.v1';
+  const YEAR_MIN = 1900;
+  const YEAR_MAX = 2100;
   const PHASE_LABEL = { new: '新月', first: '上弦', full: '満月', last: '下弦' };
   const PHASE_KEYS = [null, 'new', 'first', 'full', 'last'];
 
-  /* ---------------- 天文データの展開 ---------------- */
-  // data/2027.js は [曜日, 位相(0-1000), 月相, 二至二分] の配列で持っている
+  /* ---------------- 天文データ（年ごとに計算） ---------------- */
 
-  const DAY_MS_DATA = 86400000;
+  const YEAR_CACHE = new Map();
+  let year = 2027;
+  let DATA = null;          // { year, days, terms }
+  let DAYS = [];
+  let byDate = new Map();
+  let termByDate = new Map();
 
-  function decodeDays(src) {
-    const start = Date.UTC(src.year, 0, 1);
-    const out = [];
-    for (let i = 0; i < src.days.length; i++) {
-      const r = src.days[i];
-      const term = r[3] ? src.terms[r[3] - 1] : null;
-      out.push({
-        date: new Date(start + i * DAY_MS_DATA).toISOString().slice(0, 10),
-        dow: r[0],
-        phase: r[1] / 1000,
-        phaseEvent: PHASE_KEYS[r[2]] || null,
-        term: term ? term.name : null,
-      });
+  function dataOfYear(y) {
+    let data = YEAR_CACHE.get(y);
+    if (!data) {
+      data = ASTRO.buildYear(y);
+      YEAR_CACHE.set(y, data);
     }
-    return out;
+    return data;
   }
 
-  const DAYS = DATA.v === 2 ? decodeDays(DATA) : DATA.days;
+  function useYear(y) {
+    year = y;
+    DATA = dataOfYear(y);
+    DAYS = DATA.days;
+    byDate = new Map(DAYS.map((d) => [d.date, d]));
+    termByDate = new Map(DATA.terms.map((t) => [t.date, t]));
+  }
+
+  const todayISO = () => {
+    const now = new Date();
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  };
 
   const board = document.getElementById('board');
   const sprite = document.getElementById('sprite');
@@ -54,8 +64,6 @@
   const fileInput = document.getElementById('file-input');
 
   const pad = (n) => String(n).padStart(2, '0');
-  const byDate = new Map(DAYS.map((d) => [d.date, d]));
-  const termByDate = new Map(DATA.terms.map((t) => [t.date, t]));
 
   /* ---------------- メモの保存 ---------------- */
 
@@ -200,13 +208,24 @@
 
   const iconIndex = (f) => Math.round(f * STEPS) % STEPS;
 
+  // 年間・週間の各日に置くアイコン。月面画像を使わず金色のパスだけを描くので、
+  // 数百個並べても描画が重くならない（画像入りの記号はポップオーバーだけに使う）。
+  function moonIcon(phase, major) {
+    return (
+      `<svg class="mp${major ? ' major' : ''}" viewBox="0 0 32 32" aria-hidden="true" focusable="false">` +
+      `<circle cx="16" cy="16" r="14" fill="none" stroke="currentColor" stroke-opacity=".16" stroke-width=".7"/>` +
+      `<path d="${litPath(phase)}" fill="url(#moonGold)"/>` +
+      `</svg>`
+    );
+  }
+
   /* ---------------- グリッド構築 ---------------- */
 
   const cells = [];       // フォーカス移動用（31 x 12）
   const roving = { first: null };
 
   function makeCell(m, d) {
-    const iso = `2027-${pad(m)}-${pad(d)}`;
+    const iso = `${year}-${pad(m)}-${pad(d)}`;
     const day = byDate.get(iso);
 
     if (!day) {
@@ -228,10 +247,8 @@
     if (day.dow === 0) cell.classList.add('sun');
     if (day.term) cell.classList.add('term');
 
-    const idx = iconIndex(day.phase);
     cell.innerHTML =
-      `<svg class="mp${day.phaseEvent ? ' major' : ''}" viewBox="0 0 32 32" aria-hidden="true">` +
-      `<use href="#mp-${idx}"/></svg>` +
+      moonIcon(day.phase, !!day.phaseEvent) +
       '<span class="txt"></span>' +
       (day.term ? `<span class="tag">${day.term}</span>` : '');
 
@@ -257,6 +274,12 @@
   }
 
   function buildBoard() {
+    if (openCell) closePop();
+    board.textContent = '';
+    cells.length = 0;
+    roving.first = null;
+    board.setAttribute('aria-label', `${year}年 年間カレンダー`);
+
     const frag = document.createDocumentFragment();
 
     const corner = document.createElement('div');
@@ -271,8 +294,7 @@
       frag.appendChild(h);
     }
 
-    const todayISO = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
-      .toISOString().slice(0, 10);
+    const today = todayISO();
 
     for (let d = 1; d <= 31; d++) {
       const dn = document.createElement('div');
@@ -284,8 +306,7 @@
       const row = [];
       for (let m = 1; m <= 12; m++) {
         const cell = makeCell(m, d);
-        if (cell.classList.contains('today')) cell.classList.remove('today');
-        if (cell.dataset.date === todayISO) cell.classList.add('today');
+        if (cell.dataset.date === today) cell.classList.add('today');
         if (!cell.classList.contains('void') && !roving.first) {
           roving.first = cell;
           cell.tabIndex = 0;
@@ -529,7 +550,7 @@
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = '2027-calendar-notes.json';
+    a.download = 'lunar-calendar-backup.json';
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
@@ -617,103 +638,166 @@
   const isoOf = (d) => d.toISOString().slice(0, 10);
   const pct = (min) => `${(min / 1440) * 100}%`;
 
-  const gridStart = new Date(Date.UTC(DATA.year, 0, 1));
-  gridStart.setUTCDate(1 - gridStart.getUTCDay()); // 直前の日曜
-  const gridEnd = new Date(Date.UTC(DATA.year, 11, 31));
-  gridEnd.setUTCDate(31 + (6 - gridEnd.getUTCDay())); // 直後の土曜
+  let weeks = [];
+  let gridStart = new Date(Date.UTC(year, 0, 1));
 
-  const weeks = [];
-  for (let d = new Date(gridStart); d <= gridEnd; d.setUTCDate(d.getUTCDate() + 7)) {
-    weeks.push(new Date(d));
-  }
-
-  const dcolIndex = new Map(); // iso -> { col, head }
+  const dcolIndex = new Map(); // iso -> { col, head, adCol }（実体化済みの週のみ）
+  const weekState = new Map(); // index -> { art, built }
   let weekIndex = 0;
   let currentPane = 'year';
 
-  function buildWeeks() {
-    const frag = document.createDocumentFragment();
+  const WEEK_BUFFER = 2; // 表示中の週の前後どこまで組み立てておくか
+  const WEEK_KEEP = 4;   // これ以上離れた週は DOM を捨てる
 
+  function computeWeeks() {
+    gridStart = new Date(Date.UTC(year, 0, 1));
+    gridStart.setUTCDate(1 - gridStart.getUTCDay()); // 直前の日曜
+    const gridEnd = new Date(Date.UTC(year, 11, 31));
+    gridEnd.setUTCDate(31 + (6 - gridEnd.getUTCDay())); // 直後の土曜
+
+    weeks = [];
+    for (let d = new Date(gridStart); d <= gridEnd; d.setUTCDate(d.getUTCDate() + 7)) {
+      weeks.push(new Date(d));
+    }
+  }
+
+  function weekIso(w, i) {
+    return isoOf(new Date(weeks[w].getTime() + i * DAY_MS));
+  }
+
+  // 週の枠だけを先に作る。中身は表示範囲だけ組み立てるので、53週ぶんの
+  // DOM を一度に持たなくて済み、横スクロールが軽くなる。
+  function buildWeeks() {
+    weeksEl.textContent = '';
+    weeksEl.scrollLeft = 0;
+    dcolIndex.clear();
+    weekState.clear();
+    computeWeeks();
+    weekIndex = Math.max(0, Math.min(weeks.length - 1, weekIndex));
+
+    const frag = document.createDocumentFragment();
     for (let w = 0; w < weeks.length; w++) {
-      const start = weeks[w];
       const art = document.createElement('article');
       art.className = 'week';
       art.dataset.index = String(w);
-
-      const headRow = document.createElement('div');
-      headRow.className = 'wk-days';
-      const padCell = document.createElement('div');
-      padCell.className = 'pad';
-      headRow.appendChild(padCell);
-
-      const allDayRow = document.createElement('div');
-      allDayRow.className = 'wk-allday';
-      const adLabel = document.createElement('div');
-      adLabel.className = 'ad-label';
-      adLabel.textContent = '終日';
-      allDayRow.appendChild(adLabel);
-
-      const body = document.createElement('div');
-      body.className = 'wk-body';
-
-      const hours = document.createElement('div');
-      hours.className = 'wk-hours';
-      hours.setAttribute('aria-hidden', 'true');
-      for (let h = 0; h < 24; h++) {
-        const s = document.createElement('span');
-        s.textContent = pad(h);
-        hours.appendChild(s);
-      }
-      body.appendChild(hours);
-
-      for (let i = 0; i < 7; i++) {
-        const date = new Date(start.getTime() + i * DAY_MS);
-        const iso = isoOf(date);
-        const day = byDate.get(iso);
-        const dow = date.getUTCDay();
-
-        const head = document.createElement('div');
-        head.className = 'wk-dayhead';
-        if (dow === 0) head.classList.add('sun');
-        if (dow === 6) head.classList.add('sat');
-        if (!day) head.classList.add('out');
-        if (day && day.term) head.classList.add('term');
-
-        const phaseIdx = day ? iconIndex(day.phase) : 0;
-        head.innerHTML =
-          `<span class="d">${date.getUTCDate()}</span>` +
-          `<span class="w">${DOW[dow]}</span>` +
-          `<svg class="mp wk-mp${day && day.phaseEvent ? ' major' : ''}" viewBox="0 0 32 32" aria-hidden="true">` +
-          `<use href="#mp-${phaseIdx}"/></svg>`;
-        headRow.appendChild(head);
-
-        const adCol = document.createElement('div');
-        adCol.className = 'adcol';
-        if (dow === 0) adCol.classList.add('sun');
-        if (dow === 6) adCol.classList.add('sat');
-        if (!day) adCol.classList.add('out');
-        adCol.dataset.date = iso;
-        allDayRow.appendChild(adCol);
-
-        const col = document.createElement('div');
-        col.className = 'dcol';
-        col.dataset.date = iso;
-        if (dow === 0) col.classList.add('sun');
-        if (dow === 6) col.classList.add('sat');
-        if (!day) col.classList.add('out');
-        if (day && day.term) col.classList.add('term');
-        body.appendChild(col);
-
-        dcolIndex.set(iso, { col, head, adCol });
-      }
-
-      art.appendChild(headRow);
-      art.appendChild(allDayRow);
-      art.appendChild(body);
       frag.appendChild(art);
+      weekState.set(w, { art, built: false });
+    }
+    weeksEl.appendChild(frag);
+    ensureWeeks(weekIndex);
+  }
+
+  function buildWeekContent(w) {
+    const st = weekState.get(w);
+    if (!st || st.built) return;
+
+    const start = weeks[w];
+    const today = todayISO();
+    const art = st.art;
+
+    const headRow = document.createElement('div');
+    headRow.className = 'wk-days';
+    const padCell = document.createElement('div');
+    padCell.className = 'pad';
+    headRow.appendChild(padCell);
+
+    const allDayRow = document.createElement('div');
+    allDayRow.className = 'wk-allday';
+    const adLabel = document.createElement('div');
+    adLabel.className = 'ad-label';
+    adLabel.textContent = '終日';
+    allDayRow.appendChild(adLabel);
+
+    const body = document.createElement('div');
+    body.className = 'wk-body';
+
+    const hours = document.createElement('div');
+    hours.className = 'wk-hours';
+    hours.setAttribute('aria-hidden', 'true');
+    for (let h = 0; h < 24; h++) {
+      const s = document.createElement('span');
+      s.textContent = pad(h);
+      hours.appendChild(s);
+    }
+    body.appendChild(hours);
+
+    for (let i = 0; i < 7; i++) {
+      const date = new Date(start.getTime() + i * DAY_MS);
+      const iso = isoOf(date);
+      const day = byDate.get(iso);
+      const dow = date.getUTCDay();
+
+      const head = document.createElement('div');
+      head.className = 'wk-dayhead';
+      if (dow === 0) head.classList.add('sun');
+      if (dow === 6) head.classList.add('sat');
+      if (!day) head.classList.add('out');
+      if (day && day.term) head.classList.add('term');
+      if (iso === today) head.classList.add('today');
+
+      head.innerHTML =
+        `<span class="d">${date.getUTCDate()}</span>` +
+        `<span class="w">${DOW[dow]}</span>` +
+        (day ? moonIcon(day.phase, !!day.phaseEvent) : moonIcon(0, false));
+      const mp = head.querySelector('svg');
+      if (mp) mp.classList.add('wk-mp');
+      headRow.appendChild(head);
+
+      const adCol = document.createElement('div');
+      adCol.className = 'adcol';
+      if (dow === 0) adCol.classList.add('sun');
+      if (dow === 6) adCol.classList.add('sat');
+      if (!day) adCol.classList.add('out');
+      adCol.dataset.date = iso;
+      allDayRow.appendChild(adCol);
+
+      const col = document.createElement('div');
+      col.className = 'dcol';
+      col.dataset.date = iso;
+      if (dow === 0) col.classList.add('sun');
+      if (dow === 6) col.classList.add('sat');
+      if (!day) col.classList.add('out');
+      if (day && day.term) col.classList.add('term');
+      if (iso === today) col.classList.add('today');
+      body.appendChild(col);
+
+      dcolIndex.set(iso, { col, head, adCol });
     }
 
-    weeksEl.appendChild(frag);
+    art.appendChild(headRow);
+    art.appendChild(allDayRow);
+    art.appendChild(body);
+    st.built = true;
+
+    for (let i = 0; i < 7; i++) renderDay(weekIso(w, i));
+  }
+
+  function clearWeekContent(w) {
+    const st = weekState.get(w);
+    if (!st || !st.built) return;
+    for (let i = 0; i < 7; i++) dcolIndex.delete(weekIso(w, i));
+    st.art.textContent = '';
+    st.built = false;
+  }
+
+  function weekHas(w, iso) {
+    for (let i = 0; i < 7; i++) if (weekIso(w, i) === iso) return true;
+    return false;
+  }
+
+  function ensureWeeks(center) {
+    if (!weeks.length) return;
+    const c = Math.max(0, Math.min(weeks.length - 1, center));
+    const lo = Math.max(0, c - WEEK_BUFFER);
+    const hi = Math.min(weeks.length - 1, c + WEEK_BUFFER);
+    for (let w = lo; w <= hi; w++) buildWeekContent(w);
+
+    for (const [w, st] of weekState) {
+      if (!st.built || Math.abs(w - c) <= WEEK_KEEP) continue;
+      if (editing && weekHas(w, editing.iso)) continue;
+      if (drag && weekHas(w, drag.iso)) continue;
+      clearWeekContent(w);
+    }
   }
 
   /* --- 予定の描画 --- */
@@ -971,21 +1055,26 @@
     weekRangeEl.innerHTML = `${cell(start)}<span class="sep">–</span>${cell(end)}`;
     weekSubEl.textContent = `${weekIndex + 1} / ${weeks.length} 週`;
     const iso = isoOf(start);
-    weekJumpEl.value = iso.slice(0, 4) === String(DATA.year) ? iso : '';
+    weekJumpEl.value = iso.slice(0, 4) === String(year) ? iso : '';
     document.getElementById('wk-prev').disabled = weekIndex === 0;
     document.getElementById('wk-next').disabled = weekIndex === weeks.length - 1;
   }
 
   function gotoWeek(i, instant = false) {
+    const previous = weekIndex;
     weekIndex = Math.max(0, Math.min(weeks.length - 1, i));
+    ensureWeeks(weekIndex);
     const left = weekIndex * weeksEl.clientWidth;
+
+    // 遠くへ飛ぶときはアニメーションせず、その場で切り替える（長距離スクロールは重い）
+    const jump = instant || Math.abs(weekIndex - previous) > 3;
 
     // スムーススクロール中の中間位置で weekIndex を上書きしないようロックする
     scrollTarget = weekIndex;
     clearTimeout(scrollLockTimer);
-    scrollLockTimer = setTimeout(() => { scrollTarget = null; }, instant ? 120 : 700);
+    scrollLockTimer = setTimeout(() => { scrollTarget = null; }, jump ? 120 : 700);
 
-    if (instant) weeksEl.scrollLeft = left;
+    if (jump) weeksEl.scrollLeft = left;
     else weeksEl.scrollTo({ left, behavior: 'smooth' });
     updateWeekLabel();
   }
@@ -1037,6 +1126,7 @@
   let scrollRaf = 0;
   let scrollTarget = null;
   let scrollLockTimer = 0;
+  let weekEnsureTimer = 0;
 
   weeksEl.addEventListener('scroll', () => {
     if (scrollRaf) return;
@@ -1053,6 +1143,9 @@
       if (idx !== weekIndex && idx >= 0 && idx < weeks.length) {
         weekIndex = idx;
         updateWeekLabel();
+        // スムーススクロール中に何度も組み立てないよう、止まってから用意する
+        clearTimeout(weekEnsureTimer);
+        weekEnsureTimer = setTimeout(() => ensureWeeks(weekIndex), 140);
       }
     });
   }, { passive: true });
@@ -1096,25 +1189,244 @@
     showWeekView(openCell.dataset.date);
   });
 
+  /* ---------------- 年の切り替え ---------------- */
+
+  const yearInput = document.getElementById('yr-input');
+  const sheetDialog = document.getElementById('sheet-dialog');
+  const sheetFrom = document.getElementById('sheet-from');
+  const sheetTo = document.getElementById('sheet-to');
+
+  function clampYear(value) {
+    const y = Math.round(Number(value));
+    if (!Number.isFinite(y) || y < YEAR_MIN || y > YEAR_MAX) return 0;
+    return y;
+  }
+
+  function applyYearMeta() {
+    document.title = `${year} 年間カレンダー — Lunar Almanac`;
+    board.setAttribute('aria-label', `${year}年 年間カレンダー`);
+    weekJumpEl.min = `${year}-01-01`;
+    weekJumpEl.max = `${year}-12-31`;
+    document.getElementById('sheet-year-label').textContent = `${year}年`;
+  }
+
+  function renderYear() {
+    buildBoard();
+    buildWeeks();
+    updateWeekLabel();
+    fit();
+  }
+
+  function setYear(next, options = {}) {
+    const y = clampYear(next);
+    if (!y) {
+      yearInput.value = String(year);
+      return;
+    }
+    if (y === year && !options.force) {
+      yearInput.value = String(year);
+      return;
+    }
+
+    closePop();
+    useYear(y);
+    yearInput.value = String(y);
+    weekIndex = Number.isInteger(options.weekIndex) ? options.weekIndex : 0;
+    applyYearMeta();
+    renderYear();
+    try { localStorage.setItem(YEAR_KEY, String(y)); } catch { /* noop */ }
+    try {
+      const url = new URL(location.href);
+      url.searchParams.set('year', String(y));
+      history.replaceState(null, '', url);
+    } catch { /* file:// などでは URL を書き換えない */ }
+  }
+
+  document.getElementById('yr-prev').addEventListener('click', () => setYear(year - 1));
+  document.getElementById('yr-next').addEventListener('click', () => setYear(year + 1));
+  yearInput.addEventListener('focus', () => yearInput.select());
+  yearInput.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    setYear(yearInput.value);
+    yearInput.blur();
+  });
+  yearInput.addEventListener('blur', () => setYear(yearInput.value));
+
+  /* ---------------- 今日 ---------------- */
+
+  function goToday() {
+    const iso = todayISO();
+    setYear(Number(iso.slice(0, 4)), { weekIndex: 0 });
+    showWeekView(iso);
+  }
+
+  document.getElementById('btn-today').addEventListener('click', goToday);
+
+  /* ---------------- 表計算（CSV）へ書き出し ---------------- */
+
+  const csvCell = (value) => {
+    const text = value == null ? '' : String(value);
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+
+  function downloadCsv(filename, rows) {
+    const text = '\ufeff' + rows.map((row) => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
+    const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  const phaseText = (day) => {
+    if (!day) return '';
+    return day.phaseEvent ? PHASE_LABEL[day.phaseEvent] : `月齢${(day.phase * SYNODIC).toFixed(1)}`;
+  };
+
+  const oneLine = (text) => String(text).replace(/\s*\r?\n\s*/g, ' / ');
+
+  // 画面と同じ「日付 × 月」の表。セルに曜日・月相・メモ・予定をまとめる。
+  function annualCsvRows(y) {
+    const data = dataOfYear(y);
+    const days = new Map(data.days.map((d) => [d.date, d]));
+    const rows = [[`${y}年 年間カレンダー`], ['日付', ...Array.from({ length: 12 }, (_, i) => `${i + 1}月`)]];
+
+    for (let d = 1; d <= 31; d++) {
+      const row = [String(d)];
+      for (let m = 1; m <= 12; m++) {
+        const iso = `${y}-${pad(m)}-${pad(d)}`;
+        const day = days.get(iso);
+        if (!day) {
+          row.push('');
+          continue;
+        }
+        const parts = [DOW[day.dow], phaseText(day)];
+        if (day.term) parts.push(day.term);
+        if (notes[iso]) parts.push(oneLine(notes[iso]));
+        for (const ev of eventsOf(iso)) {
+          parts.push(ev.ad ? ev.t || '終日' : `${fmtTime(ev.s)}-${fmtTime(ev.e)} ${ev.t || '予定'}`);
+        }
+        row.push(parts.filter(Boolean).join(' '));
+      }
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  // 開始日〜終了日の予定を1行1件で並べる。予定の無い日も日付だけ残す。
+  function rangeCsvRows(from, to) {
+    const rows = [['日付', '曜日', '開始', '終了', '予定', '種別', '月相', '二至二分']];
+    const cache = new Map();
+    const dayOf = (iso) => {
+      const y = Number(iso.slice(0, 4));
+      if (!cache.has(y)) cache.set(y, new Map(dataOfYear(y).days.map((d) => [d.date, d])));
+      return cache.get(y).get(iso);
+    };
+
+    const start = new Date(`${from}T00:00:00Z`);
+    const end = new Date(`${to}T00:00:00Z`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return null;
+    const count = Math.round((end - start) / DAY_MS) + 1;
+
+    for (let i = 0; i < count; i++) {
+      const date = new Date(start.getTime() + i * DAY_MS);
+      const iso = isoOf(date);
+      const day = dayOf(iso);
+      const dow = DOW[date.getUTCDay()];
+      const phase = phaseText(day);
+      const term = day && day.term ? day.term : '';
+      const note = notes[iso];
+      const list = eventsOf(iso);
+
+      if (!note && !list.length) {
+        rows.push([iso, dow, '', '', '', '', phase, term]);
+        continue;
+      }
+      if (note) rows.push([iso, dow, '', '', oneLine(note), 'メモ', phase, term]);
+      for (const ev of list) {
+        rows.push([
+          iso,
+          dow,
+          ev.ad ? '' : fmtTime(ev.s),
+          ev.ad ? '' : fmtTime(ev.e),
+          ev.t || (ev.ad ? '終日' : '予定'),
+          ev.ad ? '終日' : '予定',
+          phase,
+          term,
+        ]);
+      }
+    }
+    return rows;
+  }
+
+  let sheetYear = 0;
+
+  function openSheetDialog() {
+    if (sheetYear !== year) {
+      sheetFrom.value = `${year}-01-01`;
+      sheetTo.value = `${year}-12-31`;
+      sheetYear = year;
+    }
+    document.getElementById('sheet-year-label').textContent = `${year}年`;
+    if (typeof sheetDialog.showModal === 'function') sheetDialog.showModal();
+    else sheetDialog.setAttribute('open', '');
+  }
+
+  document.getElementById('btn-sheet').addEventListener('click', openSheetDialog);
+  document.getElementById('sheet-close').addEventListener('click', () => sheetDialog.close());
+  document.getElementById('sheet-year').addEventListener('click', () => {
+    downloadCsv(`lunar-${year}-calendar.csv`, annualCsvRows(year));
+  });
+  document.getElementById('sheet-range').addEventListener('click', () => {
+    const from = sheetFrom.value;
+    const to = sheetTo.value;
+    if (!from || !to) {
+      alert('開始と終了の日付を入力してください。');
+      return;
+    }
+    if (from > to) {
+      alert('開始日は終了日より前にしてください。');
+      return;
+    }
+    const rows = rangeCsvRows(from, to);
+    if (!rows) {
+      alert('日付を読み取れませんでした。');
+      return;
+    }
+    if (rows.length > 3002) {
+      alert('期間が長すぎます（最大3000日）。');
+      return;
+    }
+    downloadCsv(`lunar-${from}_${to}.csv`, rows);
+  });
+
   /* ---------------- 起動 ---------------- */
 
+  function initialYear() {
+    const m = /^(?:week-)?(\d{4})-\d{2}-\d{2}$/.exec(location.hash.slice(1));
+    if (m) {
+      const y = clampYear(m[1]);
+      if (y) return y;
+    }
+    const query = clampYear(new URLSearchParams(location.search).get('year'));
+    if (query) return query;
+    let saved = 0;
+    try { saved = clampYear(localStorage.getItem(YEAR_KEY)); } catch { saved = 0; }
+    return saved || 2027;
+  }
+
   function boot() {
+    useYear(initialYear());
+    yearInput.value = String(year);
+    applyYearMeta();
 
     buildSprite();
     buildBoard();
     buildWeeks();
-    renderAllDays();
     updateWeekLabel();
-
-    {
-      const today = new Date();
-      const todayISO = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
-      const entry = dcolIndex.get(todayISO);
-      if (entry) {
-        entry.col.classList.add('today');
-        entry.head.classList.add('today');
-      }
-    }
 
     // #2027-03-21 のように指定すると、その日のメモを開いた状態で起動する
     // #week-2027-03-21 なら週表示でその週を開く
@@ -1136,6 +1448,7 @@
     window.addEventListener('resize', () => {
       fit();
       weeksEl.scrollLeft = weekIndex * weeksEl.clientWidth;
+      ensureWeeks(weekIndex);
     });
     fit();
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);

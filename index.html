@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>2027 年間カレンダー — Lunar Almanac</title>
-<meta name="description" content="2027年の年間スケジュールと週間タイムテーブル。月相・二至二分・週末を俯瞰し、日ごと・時間ごとに予定を書き込める。" />
+<meta name="description" content="年間スケジュールと週間タイムテーブル。月相・二至二分・週末を俯瞰し、日ごと・時間ごとに予定を書き込める。" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
@@ -13,7 +13,9 @@
 
 <header class="bar">
   <div class="brand">
-    <span class="year">2027</span>
+    <button type="button" class="yr-nav" id="yr-prev" aria-label="前の年">‹</button>
+    <input id="yr-input" class="year" type="text" inputmode="numeric" value="2027" aria-label="表示する年" autocomplete="off" spellcheck="false" />
+    <button type="button" class="yr-nav" id="yr-next" aria-label="次の年">›</button>
     <span class="sub">Lunar Almanac</span>
   </div>
 
@@ -30,6 +32,8 @@
   </div>
 
   <div class="actions">
+    <button type="button" class="btn today" id="btn-today" title="今日の週を開く">今日</button>
+    <button type="button" class="btn" id="btn-sheet" title="CSV で書き出す">表計算</button>
     <button type="button" class="btn" id="btn-export">書き出し</button>
     <button type="button" class="btn" id="btn-import">読み込み</button>
     <button type="button" class="btn" id="btn-print">印刷</button>
@@ -67,6 +71,33 @@
 
 </div>
 
+<dialog class="sheet-dialog" id="sheet-dialog" aria-labelledby="sheet-title">
+  <div class="sheet-form">
+    <h2 id="sheet-title">表計算に書き出す</h2>
+    <p class="sheet-note">UTF-8 の CSV です。Excel や Google スプレッドシートでそのまま開けます。</p>
+
+    <section class="sheet-sec">
+      <h3>1年カレンダー</h3>
+      <p class="sheet-sub" id="sheet-year-label">2027年</p>
+      <button type="button" class="btn sheet-go" id="sheet-year">年間カレンダーをCSVで保存</button>
+    </section>
+
+    <section class="sheet-sec">
+      <h3>期間の時間カレンダー</h3>
+      <div class="sheet-range">
+        <label>開始<input type="date" id="sheet-from" /></label>
+        <span>–</span>
+        <label>終了<input type="date" id="sheet-to" /></label>
+      </div>
+      <button type="button" class="btn sheet-go" id="sheet-range">この期間をCSVで保存</button>
+    </section>
+
+    <div class="sheet-actions">
+      <button type="button" class="btn" id="sheet-close">閉じる</button>
+    </div>
+  </div>
+</dialog>
+
 <div class="pop" id="pop" role="dialog" aria-label="日別メモ" hidden>
   <div class="pop-top">
     <svg class="pop-moon" viewBox="0 0 32 32" aria-hidden="true"><use id="pop-moon-use" href="#mp-0" /></svg>
@@ -89,7 +120,7 @@
 
 <svg id="sprite" aria-hidden="true" focusable="false"></svg>
 
-<script src="data/2027.js" defer></script>
+<script src="astro.js" defer></script>
 <script src="app.js" defer></script>
 </body>
 </html>

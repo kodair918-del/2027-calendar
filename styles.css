@@ -106,7 +106,6 @@ body::before {
   height: 66vmin;
   border-radius: 50%;
   background: url("assets/moon.jpg") center / cover no-repeat;
-  filter: grayscale(1) contrast(1.1);
   opacity: .045;
   pointer-events: none;
   z-index: 0;
@@ -128,7 +127,8 @@ html[data-theme="dark"] body::before { opacity: .07; }
 
 .brand { display: flex; align-items: baseline; gap: 11px; }
 
-.brand .year {
+.brand .year,
+#yr-input {
   font-family: "Cormorant Garamond", "Hiragino Mincho ProN", "Yu Mincho", "Times New Roman", serif;
   font-size: 33px;
   font-weight: 500;
@@ -136,6 +136,32 @@ html[data-theme="dark"] body::before { opacity: .07; }
   line-height: 1;
   font-variant-numeric: lining-nums;
 }
+
+#yr-input {
+  width: 4.1ch;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  text-align: center;
+}
+#yr-input:hover { background: rgba(128, 120, 100, .07); }
+#yr-input:focus { outline: none; background: rgba(128, 120, 100, .11); }
+
+.yr-nav {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 3px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.yr-nav:hover { color: var(--ink); background: rgba(128, 120, 100, .08); }
 
 .brand .sub {
   font-size: 8.5px;
@@ -215,6 +241,16 @@ html[data-theme="dark"] body::before { opacity: .07; }
 .btn.icon { font-size: 12px; padding: 4px 9px; line-height: 1; }
 
 .btn:disabled { cursor: default; opacity: .75; }
+
+.btn.today {
+  color: var(--gold);
+  border-color: color-mix(in srgb, var(--gold) 42%, var(--line));
+}
+.btn.today:hover {
+  color: var(--gold);
+  border-color: var(--gold);
+  background: color-mix(in srgb, var(--gold-bg) 55%, transparent);
+}
 
 /* ---------------- 画面（年間 / 週） ---------------- */
 
@@ -524,6 +560,7 @@ html[data-theme="dark"] body::before { opacity: .07; }
   scroll-snap-align: start;
   display: flex;
   flex-direction: column;
+  contain: layout paint;
 }
 
 .wk-days {
@@ -790,6 +827,55 @@ html[data-theme="dark"] body::before { opacity: .07; }
 }
 .link:hover { color: var(--ink); }
 
+/* ---------------- 表計算に書き出す ---------------- */
+
+.sheet-dialog {
+  width: min(430px, calc(100vw - 32px));
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  color: var(--ink);
+  background: var(--panel);
+  box-shadow: var(--shadow-pop);
+}
+.sheet-dialog::backdrop { background: rgba(15, 17, 20, .48); }
+
+.sheet-form { display: flex; flex-direction: column; gap: 14px; }
+.sheet-form h2 { margin: 0; font-size: 16px; font-weight: 500; }
+.sheet-note { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
+
+.sheet-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line-soft);
+}
+.sheet-sec h3 { margin: 0; font-size: 12px; font-weight: 500; letter-spacing: .05em; }
+.sheet-sub { margin: 0; font-size: 11px; color: var(--muted); }
+
+.sheet-range {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.sheet-range label { display: flex; align-items: center; gap: 5px; }
+.sheet-range input {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 6px;
+}
+.sheet-range input:focus { outline: none; border-color: var(--ink-2); }
+
+.sheet-go { align-self: flex-start; padding: 6px 14px; }
+.sheet-actions { display: flex; justify-content: flex-end; }
+
 /* ---------------- ポップオーバー ---------------- */
 
 .pop {
@@ -909,14 +995,42 @@ body.dropping::after {
   .mh .en { display: inline; }
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 1240px) {
   .legend { display: none; }
+  .actions { gap: 5px; }
+  .btn { padding: 4px 9px; }
+}
+
+@media (max-width: 1080px) {
   .wk-hint { display: none; }
   .wk-jump { display: none; }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 900px) {
   .brand .sub { display: none; }
+  .bar { gap: 12px; padding: 0 10px; }
+  #yr-input, .brand .year { font-size: 26px; }
+  #btn-export, #btn-import { display: none; }
+}
+
+/* スマートフォンでは操作ボタンを2段目に回す */
+@media (max-width: 620px) {
+  .bar {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 6px 10px;
+    gap: 8px;
+  }
+  .brand { order: 1; }
+  .views { order: 2; margin-left: auto; }
+  .actions {
+    order: 3;
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+  .btn { font-size: 10px; padding: 4px 10px; }
 }
 
 /* ---------------- 印刷 ---------------- */
