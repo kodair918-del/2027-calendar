@@ -214,18 +214,6 @@ html[data-theme="dark"] body::before { opacity: .07; }
 .btn:active { transform: translateY(.5px); }
 .btn.icon { font-size: 12px; padding: 4px 9px; line-height: 1; }
 
-.btn.sync { position: relative; }
-.btn.sync[data-tone="busy"] { color: var(--muted); border-style: dashed; }
-.btn.sync[data-tone="ok"] {
-  color: var(--gold);
-  border-color: var(--gold);
-  background: color-mix(in srgb, var(--gold-bg) 60%, transparent);
-}
-.btn.sync[data-tone="warn"] {
-  color: var(--sun);
-  border-color: var(--sun);
-  background: color-mix(in srgb, var(--sun-bg) 60%, transparent);
-}
 .btn:disabled { cursor: default; opacity: .75; }
 
 /* ---------------- 画面（年間 / 週） ---------------- */
@@ -802,36 +790,6 @@ html[data-theme="dark"] body::before { opacity: .07; }
 }
 .link:hover { color: var(--ink); }
 
-/* ---------------- サーバーログイン ---------------- */
-
-.auth-dialog {
-  width: min(390px, calc(100vw - 32px));
-  padding: 22px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  color: var(--ink);
-  background: var(--panel);
-  box-shadow: var(--shadow-pop);
-}
-.auth-dialog::backdrop { background: rgba(15, 17, 20, .48); }
-.auth-dialog form { display: flex; flex-direction: column; gap: 12px; }
-.auth-dialog h2 { margin: 0; font-size: 16px; font-weight: 500; }
-.auth-dialog p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
-.auth-dialog label { margin-top: 5px; font-size: 11px; color: var(--ink-2); }
-.auth-dialog input {
-  width: 100%;
-  padding: 9px 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--ink);
-  background: var(--bg);
-  font: inherit;
-}
-.auth-dialog input:focus { outline: none; border-color: var(--ink-2); }
-.auth-dialog .auth-error { color: var(--sun); }
-.auth-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-.auth-submit { color: var(--ink); border-color: var(--gold); }
-
 /* ---------------- ポップオーバー ---------------- */
 
 .pop {
@@ -927,9 +885,9 @@ html[data-theme="dark"] body::before { opacity: .07; }
 
 #sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
 
-/* ドラッグ＆ドロップ中 */
+/* JSON ドラッグ＆ドロップ中 */
 body.dropping::after {
-  content: "ここに .ics / .json をドロップ";
+  content: "ここに予定データ（.json）をドロップ";
   position: fixed;
   inset: 12px;
   z-index: 200;

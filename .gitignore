@@ -1,10 +1,2 @@
-# 認証情報・個人データ
-tools/.env
-tools/.timetree-session.json
-data/state.json
-data/.timetree-session.json
-data/timetree.js
-
-# OS / エディタ
 .DS_Store
 Thumbs.db

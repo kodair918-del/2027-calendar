@@ -67,7 +67,6 @@
   }
   const persist = () => {
     try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); } catch { /* 容量不足などは無視 */ }
-    queueStatePush();
   };
 
   /* ---------------- 時間予定の保存 ---------------- */
@@ -89,10 +88,6 @@
     e: Math.round(e.e),
     t: typeof e.t === 'string' ? e.t : '',
     ...(e.ad ? { ad: true } : {}),
-    ...(e.dirty ? { dirty: true } : {}),
-    ...(e.tt && typeof e.tt.id === 'string'
-      ? { tt: { id: e.tt.id, updatedAt: Number(e.tt.updatedAt) || 0 } }
-      : {}),
   });
 
   let eventMap = {};
@@ -107,99 +102,8 @@
     eventMap = {};
   }
 
-  /* ---------------- ローカルサーバー（tools/serve.mjs）連携 ---------------- */
-
-  let serverMode = false;
-  let serverAuthenticated = false;
-  let serverCanSync = false;
-  let tombstones = [];
-  let stateTimer = 0;
-
-  // 静的ホスティングから同期サーバーへ繋ぐ場合は ?api=https://example.com/ を付ける
-  const API_BASE = (() => {
-    const raw = new URLSearchParams(location.search).get('api');
-    if (!raw) return '';
-    return raw.endsWith('/') ? raw : `${raw}/`;
-  })();
-
-  function queueStatePush() {
-    if (!serverMode || !serverAuthenticated) return;
-    clearTimeout(stateTimer);
-    stateTimer = setTimeout(() => {
-      fetch(`${API_BASE}api/state`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ notes, events: eventMap, tombstones }),
-      }).then((res) => {
-        if (!res.ok) throw new Error(`サーバーへの保存に失敗しました (${res.status})`);
-      }).catch((err) => {
-        console.error('[calendar] state save failed', err);
-        const syncButton = document.getElementById('btn-sync');
-        if (syncButton && !syncButton.hidden) {
-          syncButton.dataset.tone = 'warn';
-          syncButton.title = err.message;
-        }
-      });
-    }, 350);
-  }
-
-  function applyState(payload) {
-    notes = {};
-    for (const [k, v] of Object.entries(payload.notes || {})) {
-      if (typeof v === 'string' && v.trim()) notes[k] = v;
-    }
-    try { localStorage.setItem(NOTES_KEY, JSON.stringify(notes)); } catch { /* noop */ }
-
-    eventMap = {};
-    for (const [iso, list] of Object.entries(payload.events || {})) {
-      if (!Array.isArray(list)) continue;
-      const clean = list.filter(isValidEvent).map(normEvent);
-      if (clean.length) eventMap[iso] = clean;
-    }
-    try { localStorage.setItem(EVENTS_KEY, JSON.stringify(eventMap)); } catch { /* noop */ }
-  }
-
-  async function loadServerState() {
-    if (!API_BASE && !location.protocol.startsWith('http')) return false;
-    try {
-      const authRes = await fetch(`${API_BASE}api/auth`, {
-        cache: 'no-store',
-        credentials: 'include',
-      });
-      if (!authRes.ok) return false;
-      const auth = await authRes.json();
-      if (auth.required && !auth.authenticated) {
-        serverMode = true;
-        serverAuthenticated = false;
-        return false;
-      }
-
-      const res = await fetch(`${API_BASE}api/state`, {
-        cache: 'no-store',
-        credentials: 'include',
-      });
-      if (res.status === 401) {
-        serverMode = true;
-        serverAuthenticated = false;
-        return false;
-      }
-      if (!res.ok) return false;
-      const data = await res.json();
-      applyState(data);
-      tombstones = Array.isArray(data.tombstones) ? data.tombstones : [];
-      serverCanSync = data.canSync !== false;
-      serverMode = true;
-      serverAuthenticated = true;
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
   const persistEvents = () => {
     try { localStorage.setItem(EVENTS_KEY, JSON.stringify(eventMap)); } catch { /* noop */ }
-    queueStatePush();
   };
 
   const eventsOf = (iso) => (eventMap[iso] || []).slice().sort((a, b) => a.s - b.s);
@@ -233,274 +137,6 @@
 
   const escapeHtml = (s) =>
     String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-
-  /* ---------------- iCalendar (.ics) の取り込み ---------------- */
-
-  // TimeTree / Google カレンダーなどの書き出しファイルを読む
-  const ICS_WINDOW_START = '2026-12-20';
-  const ICS_WINDOW_END = '2028-01-10';
-
-  function unescapeICS(v) {
-    return v.replace(/\\n/gi, '\n').replace(/\\,/g, ',').replace(/\\;/g, ';').replace(/\\\\/g, '\\');
-  }
-
-  // 値を { iso, minute, ad } に正規化（Z 付き UTC は JST に変換）
-  function parseICSDate(value, params) {
-    const v = String(value).trim();
-
-    let m = /^(\d{4})(\d{2})(\d{2})$/.exec(v);
-    if (m) return { iso: `${m[1]}-${m[2]}-${m[3]}`, minute: 0, ad: true };
-
-    m = /^(\d{4})-?(\d{2})-?(\d{2})T(\d{2}):?(\d{2})(?::?(\d{2}))?(Z)?$/i.exec(v);
-    if (!m) return null;
-
-    let y = +m[1];
-    let mo = +m[2];
-    let d = +m[3];
-    let hh = +m[4];
-    let mi = +m[5];
-
-    if (m[7]) {
-      const jst = new Date(Date.UTC(y, mo - 1, d, hh, mi) + 9 * 3600000);
-      y = jst.getUTCFullYear();
-      mo = jst.getUTCMonth() + 1;
-      d = jst.getUTCDate();
-      hh = jst.getUTCHours();
-      mi = jst.getUTCMinutes();
-    }
-
-    return {
-      iso: `${y}-${pad(mo)}-${pad(d)}`,
-      minute: hh * 60 + mi,
-      ad: (params && params.VALUE === 'DATE') || false,
-    };
-  }
-
-  function parseICS(text) {
-    const rawLines = String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-    const lines = [];
-    for (const line of rawLines) {
-      if (/^[ \t]/.test(line) && lines.length) lines[lines.length - 1] += line.slice(1);
-      else lines.push(line);
-    }
-
-    const out = [];
-    let cur = null;
-    for (const line of lines) {
-      const upper = line.toUpperCase();
-      if (upper === 'BEGIN:VEVENT') { cur = { exdate: [] }; continue; }
-      if (upper === 'END:VEVENT') { if (cur) out.push(cur); cur = null; continue; }
-      if (!cur) continue;
-
-      const idx = line.indexOf(':');
-      if (idx < 0) continue;
-
-      const head = line.slice(0, idx);
-      const value = line.slice(idx + 1);
-      const parts = head.split(';');
-      const name = parts.shift().toUpperCase();
-      const params = {};
-      for (const p of parts) {
-        const eq = p.indexOf('=');
-        if (eq > 0) params[p.slice(0, eq).toUpperCase()] = p.slice(eq + 1);
-      }
-
-      switch (name) {
-        case 'SUMMARY': cur.summary = unescapeICS(value).trim(); break;
-        case 'DTSTART': cur.dtstart = parseICSDate(value, params); break;
-        case 'DTEND': cur.dtend = parseICSDate(value, params); break;
-        case 'RRULE': cur.rrule = value.trim(); break;
-        case 'EXDATE':
-          for (const v of value.split(',')) {
-            const d = parseICSDate(v, params);
-            if (d) cur.exdate.push(d.iso);
-          }
-          break;
-        case 'STATUS': cur.status = value.trim().toUpperCase(); break;
-        case 'LOCATION': cur.location = unescapeICS(value).trim(); break;
-        default: break;
-      }
-    }
-    return out;
-  }
-
-  function parseRRule(src) {
-    const r = {};
-    for (const chunk of String(src).split(';')) {
-      const eq = chunk.indexOf('=');
-      if (eq < 0) continue;
-      const k = chunk.slice(0, eq).toUpperCase();
-      r[k] = chunk.slice(eq + 1).toUpperCase();
-    }
-    return r;
-  }
-
-  const WDAY_INDEX = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
-  const DAY_NAMES = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
-  const D2MS = 86400000;
-
-  const toKey = (d) => d.toISOString().slice(0, 10);
-  const fromKey = (iso) => new Date(`${iso}T00:00:00Z`);
-
-  /** VEVENT を 2027 周辺の日付リストへ展開する */
-  function icsOccurrences(ve) {
-    const start = ve.dtstart;
-    if (!start) return [];
-
-    const windowStart = fromKey(ICS_WINDOW_START);
-    const windowEnd = fromKey(ICS_WINDOW_END);
-
-    let durationMin;
-    if (ve.dtend) {
-      if (ve.dtend.iso === start.iso && !start.ad) durationMin = Math.max(15, ve.dtend.minute - start.minute);
-      else if (ve.dtend.iso === start.iso) durationMin = 1440;
-      else {
-        const days = Math.round((fromKey(ve.dtend.iso) - fromKey(start.iso)) / D2MS);
-        durationMin = ve.dtend.ad ? Math.max(1440, days * 1440) : Math.max(15, days * 1440 + ve.dtend.minute - start.minute);
-      }
-    } else {
-      durationMin = start.ad ? 1440 : 60;
-    }
-
-    const base = fromKey(start.iso);
-    const dates = [];
-
-    if (!ve.rrule) {
-      if (start.ad && durationMin > 1440) {
-        for (let i = 0; i < durationMin / 1440; i++) dates.push(new Date(base.getTime() + i * D2MS));
-      } else if (!start.ad && durationMin > 1440) {
-        const days = Math.ceil(durationMin / 1440);
-        for (let i = 0; i < days; i++) dates.push(new Date(base.getTime() + i * D2MS));
-      } else {
-        dates.push(base);
-      }
-      return dates
-        .filter((d) => d >= windowStart && d <= windowEnd)
-        .map((d) => ({
-          iso: toKey(d),
-          minute: start.ad ? 0 : start.minute,
-          duration: durationMin,
-          ad: start.ad,
-        }));
-    }
-
-    const rule = parseRRule(ve.rrule);
-    const freq = rule.FREQ || 'WEEKLY';
-    const interval = Math.max(1, Number(rule.INTERVAL || 1));
-    const count = rule.COUNT ? Number(rule.COUNT) : Infinity;
-    const until = rule.UNTIL ? parseICSDate(rule.UNTIL, {}) : null;
-    const untilKey = until ? until.iso : null;
-
-    const byDay = (rule.BYDAY || '')
-      .split(',')
-      .map((s) => WDAY_INDEX[s.replace(/^[+-]?\d+/, '').slice(0, 2)])
-      .filter((n) => Number.isInteger(n));
-    const byMonthDay = (rule.BYMONTHDAY || '')
-      .split(',')
-      .map(Number)
-      .filter((n) => Number.isInteger(n) && n !== 0);
-    const byMonth = (rule.BYMONTH || '')
-      .split(',')
-      .map(Number)
-      .filter((n) => Number.isInteger(n) && n >= 1 && n <= 12);
-
-    let emitted = 0;
-    const push = (d) => {
-      if (emitted >= count) return false;
-      if (d < windowStart || d > windowEnd) return true;
-      const iso = toKey(d);
-      if (untilKey && iso > untilKey) return false;
-      if (!ve.exdate.includes(iso)) dates.push(d);
-      emitted++;
-      return true;
-    };
-
-    if (freq === 'DAILY') {
-      for (let i = 0; i < 1200; i++) {
-        const d = new Date(base.getTime() + i * interval * D2MS);
-        if (d > windowEnd) break;
-        if (!push(d)) break;
-      }
-    } else if (freq === 'WEEKLY') {
-      const days = byDay.length ? byDay : [base.getUTCDay()];
-      const weekStart = new Date(base.getTime() - base.getUTCDay() * D2MS);
-      for (let w = 0; w < 200; w++) {
-        const ws = new Date(weekStart.getTime() + w * interval * 7 * D2MS);
-        if (ws > windowEnd) break;
-        for (const day of days) {
-          const d = new Date(ws.getTime() + day * D2MS);
-          if (d < base) continue;
-          if (d > windowEnd) break;
-          if (!push(d)) { w = 9999; break; }
-        }
-      }
-    } else if (freq === 'MONTHLY') {
-      const months = byMonthDay.length ? byMonthDay : [base.getUTCDate()];
-      for (let i = 0; i < 120; i++) {
-        const m = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + i * interval, 1));
-        if (m > windowEnd) break;
-        for (const day of months) {
-          const d = new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth(), day));
-          if (d.getUTCMonth() !== m.getUTCMonth()) continue;
-          if (d < base) continue;
-          if (!push(d)) { i = 9999; break; }
-        }
-      }
-    } else {
-      const step = freq === 'YEARLY' ? interval : 1;
-      for (let i = 0; i < 12; i++) {
-        const y = base.getUTCFullYear() + i * step;
-        const months = byMonth.length ? byMonth : [base.getUTCMonth() + 1];
-        for (const mo of months) {
-          const days = byMonthDay.length ? byMonthDay : [base.getUTCDate()];
-          for (const day of days) {
-            const d = new Date(Date.UTC(y, mo - 1, day));
-            if (d.getUTCMonth() !== mo - 1) continue;
-            if (d < base) continue;
-            if (d > windowEnd) { i = 9999; break; }
-            if (!push(d)) { i = 9999; break; }
-          }
-        }
-      }
-    }
-
-    return dates
-      .filter((d) => d >= windowStart && d <= windowEnd)
-      .map((d) => ({ iso: toKey(d), minute: start.ad ? 0 : start.minute, duration: durationMin, ad: start.ad }));
-  }
-
-  /** .ics テキストを取り込み、追加件数を返す */
-  function importICS(text) {
-    const vevents = parseICS(text);
-    let added = 0;
-
-    for (const ve of vevents) {
-      if (!ve.summary) continue;
-      if (ve.status === 'CANCELLED') continue;
-
-      for (const occ of icsOccurrences(ve)) {
-        const isAllDay = occ.ad || occ.minute === 0 && occ.duration >= 1440;
-        const s = isAllDay ? 0 : Math.max(0, Math.min(1439, occ.minute));
-        const e = isAllDay
-          ? 1440
-          : Math.max(s + 15, Math.min(1440, occ.minute + (occ.duration || 60)));
-
-        const id = `ics-${ve.summary}-${occ.iso}-${s}`.replace(/\s+/g, '_').slice(0, 80);
-        const list = eventMap[occ.iso] || (eventMap[occ.iso] = []);
-        if (list.some((x) => x.id === id)) continue;
-
-        list.push({ id, s, e, t: ve.summary, ...(isAllDay ? { ad: true } : {}) });
-        added++;
-      }
-    }
-
-    if (added) {
-      persistEvents();
-      renderAllDays();
-      refreshTexts();
-    }
-    return { added, total: vevents.length };
-  }
 
   /* ---------------- 月アイコンの生成 ---------------- */
 
@@ -947,37 +583,7 @@
 
   document.getElementById('btn-print').addEventListener('click', () => window.print());
 
-  /* ---------------- iCalendar の取り込み ---------------- */
-
-  const icsInput = document.getElementById('ics-input');
-
-  function readICSFile(file) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const { added, total } = importICS(String(reader.result || ''));
-        if (!total) { alert('.ics に予定（VEVENT）が見つかりませんでした。'); return; }
-        alert(
-          added
-            ? `${added} 件の予定を取り込みました。\n（.ics 内の予定 ${total} 件 / 2027年前後の期間を展開）`
-            : '.ics の予定はすべて取り込み済みでした。',
-        );
-      } catch (err) {
-        alert(`読み込めませんでした: ${err.message}`);
-      }
-    };
-    reader.readAsText(file, 'utf-8');
-  }
-
-  document.getElementById('btn-ics').addEventListener('click', () => icsInput.click());
-  icsInput.addEventListener('change', () => {
-    const file = icsInput.files && icsInput.files[0];
-    icsInput.value = '';
-    readICSFile(file);
-  });
-
-  // .ics / .json をウィンドウへドラッグ＆ドロップ
+  // Accept JSON schedule files dropped onto the window.
   document.addEventListener('dragover', (e) => {
     if (!e.dataTransfer) return;
     e.preventDefault();
@@ -992,13 +598,9 @@
     e.preventDefault();
     document.body.classList.remove('dropping');
     const file = e.dataTransfer.files && e.dataTransfer.files[0];
-    if (!file) return;
-    if (/\.ics$/i.test(file.name) || file.type === 'text/calendar') {
-      readICSFile(file);
-    } else if (/\.json$/i.test(file.name)) {
-      readJSONFile(file);
-    }
+    if (file && /\.json$/i.test(file.name)) readJSONFile(file);
   });
+
 
   /* ---------------- 週間ビュー ---------------- */
 
@@ -1217,7 +819,6 @@
     const i = list.findIndex((x) => x.id === id);
     if (i >= 0) {
       const removed = list[i];
-      if (removed.tt && removed.tt.id) tombstones.push(removed.tt.id);
       list.splice(i, 1);
     }
     if (!list.length) delete eventMap[iso];
@@ -1242,7 +843,6 @@
     }
 
     ev.t = value;
-    ev.dirty = true;
     persistEvents();
     ed.el.classList.remove('editing');
     paintEvent(ed.el, ev);
@@ -1278,7 +878,7 @@
   }
 
   function createEvent(iso, s, e) {
-    const ev = { id: uid(), s, e, t: '', dirty: true };
+    const ev = { id: uid(), s, e, t: '' };
     (eventMap[iso] || (eventMap[iso] = [])).push(ev);
     persistEvents();
     renderDay(iso);
@@ -1498,16 +1098,13 @@
 
   /* ---------------- 起動 ---------------- */
 
-  async function boot() {
-    await loadServerState();
+  function boot() {
 
     buildSprite();
     buildBoard();
     buildWeeks();
     renderAllDays();
     updateWeekLabel();
-    setupAuthButtons();
-    setupSyncButton();
 
     {
       const today = new Date();
@@ -1542,171 +1139,6 @@
     });
     fit();
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
-  }
-
-  /* ---------------- 同期ボタン ---------------- */
-
-  function showLoginDialog() {
-    const dialog = document.getElementById('auth-dialog');
-    const form = document.getElementById('auth-form');
-    const input = document.getElementById('auth-password');
-    const error = document.getElementById('auth-error');
-    const cancel = document.getElementById('auth-cancel');
-
-    return new Promise((resolve) => {
-      let settled = false;
-      const finish = (ok) => {
-        if (settled) return;
-        settled = true;
-        form.removeEventListener('submit', onSubmit);
-        cancel.removeEventListener('click', onCancel);
-        dialog.removeEventListener('close', onClose);
-        resolve(ok);
-      };
-      const onClose = () => finish(false);
-      const onCancel = () => dialog.close();
-      const onSubmit = async (event) => {
-        event.preventDefault();
-        const submit = form.querySelector('[type="submit"]');
-        submit.disabled = true;
-        error.hidden = true;
-        try {
-          const res = await fetch(`${API_BASE}api/login`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ password: input.value }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || 'ログインできませんでした');
-          input.value = '';
-          finish(true);
-          dialog.close();
-        } catch (err) {
-          error.textContent = err.message;
-          error.hidden = false;
-        } finally {
-          submit.disabled = false;
-        }
-      };
-
-      error.hidden = true;
-      input.value = '';
-      form.addEventListener('submit', onSubmit);
-      cancel.addEventListener('click', onCancel);
-      dialog.addEventListener('close', onClose);
-      dialog.showModal();
-      input.focus();
-    });
-  }
-
-  function setupAuthButtons() {
-    const login = document.getElementById('btn-login');
-    const logout = document.getElementById('btn-logout');
-    if (!login || !logout || !serverMode) return;
-
-    login.hidden = serverAuthenticated;
-    logout.hidden = !serverAuthenticated;
-
-    if (!login.dataset.bound) {
-      login.dataset.bound = 'true';
-      login.addEventListener('click', async () => {
-        if (!await showLoginDialog()) return;
-        await loadServerState();
-        setupAuthButtons();
-        setupSyncButton();
-        refreshAllFromState();
-      });
-    }
-
-    if (!logout.dataset.bound) {
-      logout.dataset.bound = 'true';
-      logout.addEventListener('click', async () => {
-        try {
-          const res = await fetch(`${API_BASE}api/logout`, {
-            method: 'POST',
-            credentials: 'include',
-          });
-          if (!res.ok) throw new Error('ログアウトに失敗しました');
-          location.reload();
-        } catch (err) {
-          alert(err.message);
-        }
-      });
-    }
-  }
-
-  function setupSyncButton() {
-    const btn = document.getElementById('btn-sync');
-    if (!btn || !serverMode) return;
-    if (!serverAuthenticated) {
-      btn.hidden = true;
-      return;
-    }
-    btn.hidden = false;
-
-    if (!serverCanSync) {
-      btn.disabled = true;
-      btn.textContent = '同期（未設定）';
-      btn.title = 'tools/.env に TIMETREE_EMAIL / TIMETREE_PASSWORD を設定すると同期できます';
-      return;
-    }
-
-    if (btn.dataset.bound) return;
-    btn.dataset.bound = 'true';
-    const setState = (text, tone) => {
-      btn.textContent = text;
-      btn.dataset.tone = tone || '';
-    };
-
-    btn.addEventListener('click', async () => {
-      if (btn.disabled) return;
-      btn.disabled = true;
-      const label = btn.textContent;
-      setState('同期中…', 'busy');
-      try {
-        const res = await fetch(`${API_BASE}api/sync`, {
-          method: 'POST',
-          credentials: 'include',
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || '同期に失敗しました');
-
-        applyState(data.state || {});
-        tombstones = Array.isArray(data.state?.tombstones) ? data.state.tombstones : [];
-
-        const p = data.pull || {};
-        const q = data.push || {};
-        setState(
-          `↑${p.added ?? 0} ↘${q.created + q.updated ?? 0}${q.failed ? ` !${q.failed}` : ''}`,
-          q.failed ? 'warn' : 'ok',
-        );
-        btn.title =
-          `${data.calendar} と同期しました\n` +
-          `取得 ${data.fetched} 件 / 追加 ${p.added ?? 0}・更新 ${p.updated ?? 0}・削除 ${p.removed ?? 0}\n` +
-          `送信 作成 ${q.created ?? 0}・更新 ${q.updated ?? 0}・削除 ${q.deleted ?? 0}` +
-          (q.failed ? `\n失敗 ${q.failed} 件（TimeTree 側の権限や仕様変更の可能性）` : '');
-
-        refreshAllFromState();
-      } catch (err) {
-        setState('同期失敗', 'warn');
-        btn.title = err.message;
-        alert(`同期できませんでした:\n${err.message}`);
-      } finally {
-        btn.disabled = false;
-        setTimeout(() => { if (btn.textContent !== label) setState('同期', ''); }, 6000);
-      }
-    });
-  }
-
-  function refreshAllFromState() {
-    for (const row of cells) {
-      for (const cell of row) {
-        if (cell && !cell.classList.contains('void')) refreshCell(cell.dataset.date);
-      }
-    }
-    renderAllDays();
-    if (openCell) openPop(openCell, pop);
   }
 
   boot();

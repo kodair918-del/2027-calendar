@@ -5,9 +5,8 @@
  *   node tools/build.mjs
  *   → dist/index.html （CSS / JS / 天文データ / 月面画像をすべて内包）
  *
- * dist/index.html はそのまま GitHub Pages / Netlify / Cloudflare Pages などに
+ * dist/index.html はそのまま GitHub Pages などに
  * 置くだけで動く（ローカルファイルとして開いても動く）。
- * TimeTree 同期を使う場合は ?api=https://<同期サーバー>/ を付ける。
  */
 import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

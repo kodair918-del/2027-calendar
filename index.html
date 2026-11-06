@@ -30,16 +30,11 @@
   </div>
 
   <div class="actions">
-    <button type="button" class="btn" id="btn-login" hidden>ログイン</button>
-    <button type="button" class="btn" id="btn-logout" hidden>ログアウト</button>
-    <button type="button" class="btn sync" id="btn-sync" title="TimeTree と双方向同期" hidden>同期</button>
     <button type="button" class="btn" id="btn-export">書き出し</button>
     <button type="button" class="btn" id="btn-import">読み込み</button>
-    <button type="button" class="btn" id="btn-ics" title="TimeTree / Google カレンダーなどの .ics を取り込む">iCal</button>
     <button type="button" class="btn" id="btn-print">印刷</button>
     <button type="button" class="btn icon" id="btn-theme" title="テーマ切り替え" aria-label="テーマ切り替え">◐</button>
     <input type="file" id="file-input" accept=".json,application/json" hidden />
-    <input type="file" id="ics-input" accept=".ics,text/calendar,text/plain" hidden />
   </div>
 </header>
 
@@ -71,20 +66,6 @@
   </section>
 
 </div>
-
-<dialog class="auth-dialog" id="auth-dialog" aria-labelledby="auth-title">
-  <form id="auth-form">
-    <h2 id="auth-title">カレンダーにログイン</h2>
-    <p>予定を保存・同期するため、サイトのパスワードを入力してください。</p>
-    <label for="auth-password">サイトのパスワード</label>
-    <input id="auth-password" type="password" autocomplete="current-password" required />
-    <p class="auth-error" id="auth-error" role="alert" hidden></p>
-    <div class="auth-actions">
-      <button type="button" class="btn" id="auth-cancel">あとで</button>
-      <button type="submit" class="btn auth-submit">ログイン</button>
-    </div>
-  </form>
-</dialog>
 
 <div class="pop" id="pop" role="dialog" aria-label="日別メモ" hidden>
   <div class="pop-top">
